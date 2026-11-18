@@ -1,0 +1,15 @@
+# venv & cache
+.venv/
+.venv-lite/
+__pycache__/
+*.pyc
+
+# hasil download & extract (data runtime, bukan kode)
+downloads/
+
+# arsip lokal
+*.tar.gz
+
+# sync record snapshot (metadata lokal, jangan ikut ke repo)
+*.muse-github-snapshot-sync.json
+*.muse-github-snapshot-sync.json.tmp-*

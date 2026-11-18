@@ -1,0 +1,16 @@
+services:
+  m2l:
+    build:
+      context: .
+      dockerfile: Dockerfile.lite
+    container_name: move2link-web-lite
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./downloads:/app/downloads
+    environment:
+      # WAJIB ganti sebelum expose ke internet! Kosongkan = tanpa password.
+      - M2L_PASSWORD=ganti-password-ini
+      - M2L_SECRET=ganti-secret-acak-ini
+      - M2L_PORT=5000

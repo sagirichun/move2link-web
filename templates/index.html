@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Move2link Web</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 760px;
+         margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+  h1 { font-size: 1.4rem; margin-bottom: .2rem; }
+  .sub { color: #888; margin-top: 0; font-size: .9rem; }
+  textarea { width: 100%; min-height: 74px; font: inherit; padding: .6rem;
+             box-sizing: border-box; border: 1px solid #888; border-radius: 8px; }
+  button { font: inherit; padding: .55rem 1.1rem; border-radius: 8px;
+           border: 0; background: #2563eb; color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: wait; }
+  button.secondary { background: #059669; }
+  .card { border: 1px solid #8883; border-radius: 10px; padding: 1rem;
+          margin-top: 1rem; }
+  .err { color: #dc2626; white-space: pre-wrap; }
+  .mono { font-family: ui-monospace, monospace; word-break: break-all;
+          font-size: .85rem; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; }
+  .muted { color: #888; font-size: .85rem; }
+  ul { padding-left: 1.2rem; }
+  .job { border-bottom: 1px solid #8883; padding: .4rem 0; }
+  .ok { color: #059669; } .bad { color: #dc2626; }
+</style>
+</head>
+<body>
+<h1>Move2link Web</h1>
+<p class="sub">Paste link move2link.co, URL diary, atau token JWT — dapat link final, lalu download &amp; extract otomatis. <a href="/logout">Logout</a></p>
+{% if not browser_ok %}
+<p class="sub" style="color:#b45309">Versi lite (tanpa Chromium): paste URL diary / token JWT dari log RedirectGuard — shortlink langsung tidak bisa dibuka otomatis di versi ini.</p>
+{% endif %}
+
+<textarea id="inp" placeholder="https://move2link.co/xxxxxx
+atau
+https://diary.siendu.com/...?token=eyJhbGciOi...
+atau token JWT mentah"></textarea>
+<div class="row">
+  <button id="go" onclick="resolve()">Resolve</button>
+  <span class="muted">Link paywall (bayar QRIS) tidak bisa diproses — tokennya baru terbit setelah bayar.</span>
+</div>
+
+<div id="result"></div>
+
+<div class="card">
+  <b>Download &amp; Extract</b>
+  <div id="jobs" class="muted">Belum ada job.</div>
+  <div class="row"><button class="secondary" onclick="refreshAll()">Refresh</button></div>
+</div>
+
+<div class="card">
+  <b>File di server</b>
+  <div id="files" class="muted">—</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtSize = n => n > 1048576 ? (n/1048576).toFixed(1)+' MB' : n > 1024 ? (n/1024).toFixed(0)+' KB' : n+' B';
+
+async function resolve() {
+  const btn = $('go'); btn.disabled = true;
+  $('result').innerHTML = '<p class="muted">Lagi resolve… (kalau pakai shortlink, browser server lagi lewatin Cloudflare — bisa 30–90 detik)</p>';
+  try {
+    const r = await fetch('/api/resolve', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({input: $('inp').value})});
+    const d = await r.json();
+    if (!d.ok) { $('result').innerHTML = `<div class="card"><p class="err">Gagal: ${d.error}</p></div>`; return; }
+    $('result').innerHTML = `<div class="card">
+      <b>Slug:</b> ${d.slug} &nbsp; <b>PID:</b> ${d.pid}<br><br>
+      <b>Link final:</b><br><a class="mono" href="${d.final_url}" target="_blank" rel="noopener">${d.final_url}</a>
+      <div class="row">
+        <button onclick="copyText('${d.final_url}')">Salin link final</button>
+        <button class="secondary" onclick="startDownload('${d.final_url}')">Download &amp; Extract</button>
+      </div>
+      <p class="muted">Link go.move2link.co:<br><span class="mono">${d.go_url}</span></p>
+    </div>`;
+  } catch(e) { $('result').innerHTML = `<div class="card"><p class="err">Error: ${e}</p></div>`; }
+  finally { btn.disabled = false; }
+}
+
+function copyText(t){ navigator.clipboard.writeText(t); }
+
+async function startDownload(url){
+  const r = await fetch('/api/download', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({url})});
+  const d = await r.json();
+  if(!d.ok){ alert('Gagal: '+d.error); return; }
+  refreshAll();
+  const t = setInterval(async ()=>{
+    await refreshAll();
+    const j = (window._jobs||[]).find(x=>x.id===d.job_id);
+    if(j && (j.status==='done' || j.status==='error')) clearInterval(t);
+  }, 2000);
+}
+
+async function refreshAll(){
+  const jr = await fetch('/api/jobs'); const jd = await jr.json();
+  window._jobs = jd.jobs || [];
+  $('jobs').innerHTML = window._jobs.length ? window._jobs.map(j=>{
+    let s = `<b>${j.status}</b> — <span class="mono">${j.url}</span>`;
+    if(j.file) s += `<br>File: ${j.file.filename} (${fmtSize(j.file.size)})`;
+    if(j.extracted) s += `<br><span class="ok">Extracted ${j.extracted.files.length} file</span>`;
+    if(j.error) s += `<br><span class="bad">${j.error}</span>`;
+    if(j.status==='downloading' && j.progress) s += `<br>${fmtSize(j.progress[0])} / ${j.progress[1]?fmtSize(j.progress[1]):'?'}`;
+    return `<div class="job">${s}</div>`;
+  }).join('') : 'Belum ada job.';
+  const fr = await fetch('/api/files'); const fd = await fr.json();
+  $('files').innerHTML = (fd.files||[]).length ? '<ul>' + fd.files.map(f=>
+    `<li><a href="${f.url}">${f.name}</a> (${fmtSize(f.size)})</li>`).join('') + '</ul>' : '—';
+}
+refreshAll();
+</script>
+</body>
+</html>
